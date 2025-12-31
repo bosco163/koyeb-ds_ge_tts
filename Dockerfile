@@ -1,22 +1,6 @@
-# ==========================================
-# 阶段 1: 构建 Gemini (Go)
-# ==========================================
-FROM golang:1.21-alpine AS go-builder
-WORKDIR /build
-RUN apk add --no-cache git
-# 克隆 Gemini 项目
-RUN git clone https://github.com/erxiansheng/gemininixiang.git .
-# 修复核心：手动初始化 module 并下载依赖
-RUN go mod init gemini && go mod tidy
-# 编译成名为 server 的二进制文件
-RUN go build -o server .
-
-# ==========================================
-# 阶段 2: 构建最终镜像 (基于 Python)
-# ==========================================
 FROM python:3.10-slim
 
-# 1. 安装基础工具 和 Node.js 20
+# 1. 安装基础工具、Node.js 20 和常用库
 RUN apt-get update && apt-get install -y \
     nginx \
     supervisor \
@@ -29,7 +13,6 @@ RUN apt-get update && apt-get install -y \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
     && apt-get update && apt-get install -y nodejs \
     && npm install -g yarn \
-    # 清理缓存减小镜像体积
     && rm -rf /var/lib/apt/lists/*
 
 # ===========================
@@ -40,12 +23,32 @@ RUN git clone https://github.com/travisvn/openai-edge-tts.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ===========================
-# 3. 部署 Gemini (Go) -> 端口 3000
+# 3. 部署 Gemini 逆向 -> 端口 3000
+#    (自动识别是 Python 还是 Node)
 # ===========================
 WORKDIR /app/gemini
-# 直接从第一阶段把编译好的文件拿过来，不需要在生产环境装 Go
-COPY --from=go-builder /build/server .
-RUN chmod +x server
+RUN git clone https://github.com/erxiansheng/gemininixiang.git .
+# 如果有 requirements.txt 就安装 Python 依赖
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+# 如果有 package.json 就安装 Node 依赖
+RUN if [ -f package.json ]; then npm install; fi
+
+# 创建一个智能启动脚本，因为我们不知道入口是哪个文件
+RUN echo '#!/bin/bash\n\
+if [ -f main.py ]; then\n\
+    echo "Starting Python (main.py)..."\n\
+    exec python3 main.py\n\
+elif [ -f app.py ]; then\n\
+    echo "Starting Python (app.py)..."\n\
+    exec python3 app.py\n\
+elif [ -f package.json ]; then\n\
+    echo "Starting Node.js..."\n\
+    exec npm start\n\
+else\n\
+    echo "Error: Could not find startup file (main.py, app.py, or package.json)"\n\
+    ls -R\n\
+    sleep 3600\n\
+fi' > /app/gemini/start.sh && chmod +x /app/gemini/start.sh
 
 # ===========================
 # 4. 部署 DeepSeek (Node.js) -> 端口 4000
@@ -53,7 +56,7 @@ RUN chmod +x server
 WORKDIR /app/deepseek
 RUN git clone https://github.com/iidamie/deepseek2api.git .
 RUN npm install
-# 尝试修改默认端口为 4000 (防止冲突)
+# 尝试把代码里的 3000 改成 4000，防止端口冲突
 RUN grep -rl "3000" . | xargs sed -i 's/3000/4000/g' || true
 
 # ===========================
