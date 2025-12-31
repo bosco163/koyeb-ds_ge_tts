@@ -23,54 +23,52 @@ RUN git clone https://github.com/travisvn/openai-edge-tts.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ===========================
-# 3. 部署 Gemini (智能识别) -> 端口 3000
+# 3. 部署 Gemini -> 端口 3000
 # ===========================
 WORKDIR /app/gemini
 RUN git clone https://github.com/erxiansheng/gemininixiang.git .
-# 自动判断并安装依赖
 RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
 RUN if [ -f package.json ]; then npm install; fi
-# 创建智能启动脚本
+
+# [关键修复] 暴力查找所有文件，把默认的 8000 改为 3000，防止跟 Nginx 冲突
+RUN grep -rl "8000" . | xargs sed -i 's/8000/3000/g' || true
+RUN grep -rl "8080" . | xargs sed -i 's/8080/3000/g' || true
+
+# 启动脚本
 RUN echo '#!/bin/bash\n\
 if [ -f main.py ]; then\n\
-    echo "Starting Python (main.py)..."\n\
+    echo "Starting Gemini Python..."\n\
     exec python3 main.py\n\
 elif [ -f app.py ]; then\n\
-    echo "Starting Python (app.py)..."\n\
     exec python3 app.py\n\
 elif [ -f package.json ]; then\n\
-    echo "Starting Node.js..."\n\
     exec npm start\n\
 else\n\
-    echo "Error: Could not find startup file in Gemini"\n\
     sleep 3600\n\
 fi' > start.sh && chmod +x start.sh
 
 # ===========================
-# 4. 部署 DeepSeek (智能识别) -> 端口 4000
+# 4. 部署 DeepSeek -> 端口 4000
 # ===========================
 WORKDIR /app/deepseek
 RUN git clone https://github.com/iidamie/deepseek2api.git .
-# 自动判断并安装依赖 (修复报错的关键)
 RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
 RUN if [ -f package.json ]; then npm install; fi
-# 尝试修改端口配置（如果是 Node）
-RUN if [ -f package.json ]; then grep -rl "3000" . | xargs sed -i 's/3000/4000/g' || true; fi
 
-# 创建 DeepSeek 的智能启动脚本
+# [关键修复] 暴力查找所有文件，把默认的 8000 改为 4000
+RUN grep -rl "8000" . | xargs sed -i 's/8000/4000/g' || true
+RUN grep -rl "3000" . | xargs sed -i 's/3000/4000/g' || true
+
+# 启动脚本
 RUN echo '#!/bin/bash\n\
 if [ -f main.py ]; then\n\
-    echo "Starting DeepSeek Python (main.py)..."\n\
+    echo "Starting DeepSeek Python..."\n\
     exec python3 main.py\n\
 elif [ -f app.py ]; then\n\
-    echo "Starting DeepSeek Python (app.py)..."\n\
     exec python3 app.py\n\
 elif [ -f package.json ]; then\n\
-    echo "Starting DeepSeek Node.js..."\n\
     exec npm start\n\
 else\n\
-    echo "Error: Could not find startup file in DeepSeek"\n\
-    ls -R\n\
     sleep 3600\n\
 fi' > start.sh && chmod +x start.sh
 
@@ -81,6 +79,7 @@ WORKDIR /app
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+# 只有 Nginx 允许监听 8000
 ENV PORT=8000
 EXPOSE 8000
 
