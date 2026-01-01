@@ -26,15 +26,24 @@ WORKDIR /app/deepseek
 RUN git clone https://github.com/iidamie/deepseek2api.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. 部署 Qwen2API (Node.js - 3000)
+# ==========================================
+# 5. 部署 Qwen2API (修复：增加前端编译步骤)
+# ==========================================
 WORKDIR /app/qwen
-# 换成新的 Node 项目
 RUN git clone https://github.com/Rfym21/Qwen2API.git .
+# 5.1 安装后端依赖
 RUN npm install
-# 创建必要的缓存和数据目录，防止权限问题
+
+# 5.2 ⚠️ 关键修复：编译前端静态资源
+WORKDIR /app/qwen/public
+RUN npm install
+RUN npm run build
+
+# 5.3 回到项目根目录并处理权限
+WORKDIR /app/qwen
 RUN mkdir -p caches data logs && chmod -R 777 caches data logs
 
-# 6. 配置
+# 6. 配置 Nginx 和 Supervisor
 WORKDIR /app
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
